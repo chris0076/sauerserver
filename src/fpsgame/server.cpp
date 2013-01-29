@@ -240,6 +240,7 @@ namespace server
         char *authkickreason;
 
         bool editmuted;
+        bool muted;
 
         clientinfo() : getdemo(NULL), getmap(NULL), clipboard(NULL), authchallenge(NULL), authkickreason(NULL) { reset(); }
         ~clientinfo() { events.deletecontents(); cleanclipboard(); cleanauth(); }
@@ -351,6 +352,7 @@ namespace server
             mapchange();
 
             editmuted = editmuteinit;
+            muted = false;
         }
 
         int geteventmillis(int servmillis, int clientmillis)
@@ -2512,6 +2514,19 @@ void client_command(char *cmd, int sender) {
         sendservmsg(msg);
         return;
     }
+    if (strcmp(part[0], "#mute") == 0) {
+        ci = getinfo(sender);
+        if(ci->privilege < PRIV_MASTER) {sendf(sender, 1, "ris", N_SERVMSG, "\f3You need to be logged in to use mute"); return;}
+        if(j<3) {sendf(sender, 1, "ris", N_SERVMSG, "\f2#mute <bool> <cn>."); return;}
+
+        ci=getinfo(atoi(part[2]));
+        if(!ci) {sendf(sender, 1, "ris", N_SERVMSG, "\f3#server: specified CN does not exist"); return;}
+        ci->muted = atoi(part[1]); // toggle mute
+
+        defformatstring(msg)("\f6#server: CN %d mute = %d", atoi(part[2]), ci->muted);
+        sendservmsg(msg);
+        return;
+    }
 }
 
 
@@ -3116,6 +3131,7 @@ void client_command(char *cmd, int sender) {
                     client_command(text, sender); // process command
                     break;
                 }
+                if(!ci || ci->muted) break;
 
                 QUEUE_STR(text);
                 if(isdedicatedserver()) logoutf("%s: %s", colorname(cq), text);
@@ -3126,6 +3142,7 @@ void client_command(char *cmd, int sender) {
             {
                 getstring(text, p);
                 if(!ci || !cq || (ci->state.state==CS_SPECTATOR && !ci->local && !ci->privilege) || !m_teammode || !cq->team[0]) break;
+                if(ci->muted) break;
                 loopv(clients)
                 {
                     clientinfo *t = clients[i];
@@ -3172,7 +3189,7 @@ void client_command(char *cmd, int sender) {
                 getstring(text, p);
                 filtertext(text, text, false);
                 int reqmode = getint(p);
-                if(ci->editmuted) break;
+                if(ci->editmuted || ci->muted) break;
                 vote(text, reqmode, sender);
                 break;
             }
@@ -3231,7 +3248,7 @@ void client_command(char *cmd, int sender) {
                     case ID_SVAR: getstring(text, p);
                 }
 
-                if(ci->editmuted) break;
+                if(ci->editmuted || ci->muted) break;
                 if(ci && ci->state.state!=CS_SPECTATOR) QUEUE_MSG;
                 break;
             }
