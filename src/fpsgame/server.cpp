@@ -209,6 +209,7 @@ namespace server
 
     extern int gamemillis, nextexceeded;
 
+    int editmuteinit = 0; // new players get set to this
 
     struct clientinfo
     {
@@ -237,6 +238,8 @@ namespace server
         void *authchallenge;
         int authkickvictim;
         char *authkickreason;
+
+        bool editmuted;
 
         clientinfo() : getdemo(NULL), getmap(NULL), clipboard(NULL), authchallenge(NULL), authkickreason(NULL) { reset(); }
         ~clientinfo() { events.deletecontents(); cleanclipboard(); cleanauth(); }
@@ -346,6 +349,8 @@ namespace server
             cleanclipboard();
             cleanauth();
             mapchange();
+
+            editmuted = editmuteinit;
         }
 
         int geteventmillis(int servmillis, int clientmillis)
@@ -617,13 +622,13 @@ namespace server
     SVAR(serverpass, "");
     SVAR(adminpass, "");
     VARF(publicserver, 0, 0, 2, {
-		switch(publicserver)
-		{
-			case 0: default: mastermask = MM_PRIVSERV; break;
-			case 1: mastermask = MM_PUBSERV; break;
-			case 2: mastermask = MM_COOPSERV; break;
-		}
-	});
+        switch(publicserver)
+        {
+            case 0: default: mastermask = MM_PRIVSERV; break;
+            case 1: mastermask = MM_PUBSERV; break;
+            case 2: mastermask = MM_COOPSERV; break;
+        }
+    });
     SVAR(servermotd, "");
 
     struct teamkillkick
@@ -2059,6 +2064,7 @@ namespace server
     {
         clientinfo *ci = getinfo(sender);
         if(!ci || (ci->state.state==CS_SPECTATOR && !ci->privilege && !ci->local) || (!ci->local && !m_mp(reqmode))) return;
+        if(ci->editmuted) return;
         if(!m_valid(reqmode)) return;
         if(!map[0] && !m_check(reqmode, M_EDIT))
         {
@@ -2478,6 +2484,36 @@ namespace server
         return DISC_NONE;
     }
 
+void client_command(char *cmd, int sender) {
+    clientinfo *ci;
+
+    char *p; char *part[16];
+    const char tok = ' ';
+    p = strtok(cmd, &tok);
+    int j = 0;
+
+    while (p!=NULL) {
+        part[j] = p;
+        p = strtok(NULL, &tok);
+        j++;
+    }
+    if(j==0) return;
+
+    if (strcmp(part[0], "#editmute") == 0) {
+        ci = getinfo(sender);
+        if (ci->privilege < PRIV_MASTER) {sendf(sender, 1, "ris", N_SERVMSG, "\f3You need to be logged in to use editmute"); return;}
+        if (j<3) {sendf(sender, 1, "ris", N_SERVMSG, "\f2#editmute <bool> <cn>."); return;}
+
+        ci=getinfo(atoi(part[2]));
+        if (!ci) {sendf(sender, 1, "ris", N_SERVMSG, "\f3#server: specified CN does not exist"); return;}
+        ci->editmuted = atoi(part[1]); // toggle edit mute
+
+        defformatstring(msg)("\f6#server: CN %d editmute = %d", atoi(part[2]), ci->editmuted);
+        sendservmsg(msg);
+        return;
+    }
+}
+
 
     void clientdisconnect(int n)
     {
@@ -2694,6 +2730,7 @@ namespace server
         if(!m_edit || len > 4*1024*1024) return;
         clientinfo *ci = getinfo(sender);
         if(ci->state.state==CS_SPECTATOR && !ci->privilege && !ci->local) return;
+        if(ci->editmuted) return;
 
         if(mapdata) DELETEP(mapdata);
         if(!len) return;
@@ -2768,6 +2805,8 @@ namespace server
                     if(!text[0]) copystring(text, "unnamed");
                     copystring(ci->name, text, MAXNAMELEN+1);
                     ci->playermodel = getint(p);
+
+                    ci->editmuted = editmuteinit;
 
                     string password, authdesc, authname;
                     getstring(password, p, sizeof(password));
@@ -2910,7 +2949,7 @@ namespace server
             {
                 int val = getint(p);
                 if(!ci->local && !m_edit) break;
-
+                if(ci->editmuted) break;
                 if(val ? ci->state.state!=CS_ALIVE && ci->state.state!=CS_DEAD : ci->state.state!=CS_EDITING) break;
                 if(smode)
                 {
@@ -3071,6 +3110,13 @@ namespace server
                 QUEUE_MSG;
                 getstring(text, p);
                 filtertext(text, text);
+                if (text[0]=='#')
+                {
+                    cm->messages.drop(); // no empty talk
+                    client_command(text, sender); // process command
+                    break;
+                }
+
                 QUEUE_STR(text);
                 if(isdedicatedserver()) logoutf("%s: %s", colorname(cq), text);
                 break;
@@ -3126,6 +3172,7 @@ namespace server
                 getstring(text, p);
                 filtertext(text, text, false);
                 int reqmode = getint(p);
+                if(ci->editmuted) break;
                 vote(text, reqmode, sender);
                 break;
             }
@@ -3156,6 +3203,7 @@ namespace server
                 int type = getint(p);
                 loopk(5) getint(p);
                 if(!ci || ci->state.state==CS_SPECTATOR) break;
+                if(ci->editmuted) break;
                 QUEUE_MSG;
                 bool canspawn = canspawnitem(type);
                 if(i<MAXENTS && (sents.inrange(i) || canspawnitem(type)))
@@ -3182,6 +3230,8 @@ namespace server
                     case ID_FVAR: getfloat(p); break;
                     case ID_SVAR: getstring(text, p);
                 }
+
+                if(ci->editmuted) break;
                 if(ci && ci->state.state!=CS_SPECTATOR) QUEUE_MSG;
                 break;
             }
@@ -3354,6 +3404,7 @@ namespace server
             {
                 int size = getint(p);
                 if(!ci->privilege && !ci->local && ci->state.state==CS_SPECTATOR) break;
+                if(ci->editmuted) break;
                 if(size>=0)
                 {
                     smapname[0] = '\0';
@@ -3470,6 +3521,7 @@ namespace server
                 goto genericmsg;
 
             case N_PASTE:
+                if(ci->editmuted) break;
                 if(ci->state.state!=CS_SPECTATOR) sendclipboard(ci);
                 goto genericmsg;
 
@@ -3521,6 +3573,7 @@ namespace server
                 int size = server::msgsizelookup(type);
                 if(size<=0) { disconnect_client(sender, DISC_MSGERR); return; }
                 loopi(size-1) getint(p);
+                if((ci->editmuted) && (type>=40 && type <=50)) break;
                 if(ci && cq && (ci != cq || ci->state.state!=CS_SPECTATOR)) { QUEUE_AI; QUEUE_MSG; }
                 break;
             }
