@@ -1,0 +1,26 @@
+#!/bin/sh
+# SAUER_DATA should refer to the directory in which Sauerbraten data files are placed.
+#SAUER_DATA=~/sauerbraten
+#SAUER_DATA=/usr/local/sauerbraten
+SAUER_DATA=.
+
+# SAUER_BIN should refer to the directory in which Sauerbraten executable files are placed.
+SAUER_BIN=${SAUER_DATA}/bin_unix
+
+# SAUER_OPTIONS contains any command line options you would like to start Sauerbraten with.
+#SAUER_OPTIONS="-f"
+SAUER_OPTIONS=""
+
+if [ -x ${SAUER_BIN}/native_server ]
+then
+  cd ${SAUER_DATA}
+  exec ${SAUER_BIN}/native_server ${SAUER_OPTIONS} "$@"
+else
+  echo "Your platform does not have a pre-compiled Sauerbraten server."
+  echo "Please follow the following steps to build a native server:"
+  echo "1) Ensure you have the SDL, SDL-image, SDL-mixer, and OpenGL libraries installed."
+  echo "2) Change directory to src/ and type \"make install\"."
+  echo "3) If the build succeeds, return to this directory and run this script again."
+  exit 1
+fi
+

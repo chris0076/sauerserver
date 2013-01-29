@@ -1,0 +1,9 @@
+*.o
+.svn
+sauer_server
+native_server
+*.exe
+*.lo
+*.la
+*.a
+*.lai
